@@ -8,38 +8,32 @@ import { fileURLToPath } from "url";
 
 const app = express();
 
-// --------------------------------------------------
-// Required for ES Modules
-// --------------------------------------------------
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --------------------------------------------------
-// Port
-// --------------------------------------------------
-
 const PORT = process.env.PORT || 5000;
-
-// --------------------------------------------------
-// Middleware
-// --------------------------------------------------
 
 app.use(cors());
 app.use(express.json());
 
 // --------------------------------------------------
-// Deno path
-// --------------------------------------------------
-// Local Windows installation.
-// On Render, Deno should be available through PATH.
+// Local Windows Deno
 // --------------------------------------------------
 
 const localDenoPath =
   "C:\\Users\\udayv\\AppData\\Local\\Microsoft\\WinGet\\Packages\\DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe\\deno.exe";
 
 // --------------------------------------------------
-// Allowed websites
+// Platform commands
+// --------------------------------------------------
+
+const pythonCommand =
+  process.platform === "win32"
+    ? "py"
+    : "python3";
+
+// --------------------------------------------------
+// Allowed hosts
 // --------------------------------------------------
 
 const allowedHosts = [
@@ -57,6 +51,7 @@ const allowedHosts = [
 function getPlatform(value) {
   try {
     const url = new URL(value);
+
     const hostname = url.hostname.toLowerCase();
 
     if (
@@ -102,25 +97,23 @@ function isAllowedUrl(value) {
 }
 
 // --------------------------------------------------
-// Health check
+// Health
 // --------------------------------------------------
 
 app.get("/health", (req, res) => {
   res.json({
-    status: "ok"
+    status: "ok",
+    platform: process.platform,
+    python: pythonCommand
   });
 });
 
 // --------------------------------------------------
-// Download API
+// Download
 // --------------------------------------------------
 
 app.post("/api/download", (req, res) => {
   const { url } = req.body;
-
-  // ----------------------------------------------
-  // Validate URL
-  // ----------------------------------------------
 
   if (!url || !isAllowedUrl(url)) {
     return res.status(400).json({
@@ -128,10 +121,6 @@ app.post("/api/download", (req, res) => {
         "Please enter a valid YouTube or Instagram URL."
     });
   }
-
-  // ----------------------------------------------
-  // Detect platform
-  // ----------------------------------------------
 
   const platform = getPlatform(url);
 
@@ -145,10 +134,12 @@ app.post("/api/download", (req, res) => {
   console.log("----------------------------------------");
   console.log("Platform:", platform);
   console.log("URL:", url);
+  console.log("Operating system:", process.platform);
+  console.log("Python command:", pythonCommand);
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Temporary directory
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "media-download-")
@@ -159,9 +150,9 @@ app.post("/api/download", (req, res) => {
     "%(title)s.%(ext)s"
   );
 
-  // ----------------------------------------------
-  // Build yt-dlp arguments
-  // ----------------------------------------------
+  // ------------------------------------------------
+  // yt-dlp arguments
+  // ------------------------------------------------
 
   const args = [
     "-m",
@@ -169,14 +160,14 @@ app.post("/api/download", (req, res) => {
     "--no-playlist"
   ];
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // YouTube
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   if (platform === "youtube") {
+
     let denoArgument = "deno";
 
-    // On local Windows, use the known Deno path.
     if (
       process.platform === "win32" &&
       fs.existsSync(localDenoPath)
@@ -189,15 +180,15 @@ app.post("/api/download", (req, res) => {
       denoArgument,
 
       // Combined video + audio.
-      // Does not require FFmpeg.
+      // No FFmpeg required.
       "-f",
       "18"
     );
   }
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Instagram
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   if (platform === "instagram") {
     args.push(
@@ -206,9 +197,9 @@ app.post("/api/download", (req, res) => {
     );
   }
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Output
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   args.push(
     "-o",
@@ -216,44 +207,56 @@ app.post("/api/download", (req, res) => {
     url
   );
 
-  console.log("Running:");
-  console.log("py", args.join(" "));
+  console.log(
+    "Running:",
+    pythonCommand,
+    args.join(" ")
+  );
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Start yt-dlp
-  // ----------------------------------------------
+  // ------------------------------------------------
 
-  const ytdlp = spawn("py", args);
+  const ytdlp = spawn(
+    pythonCommand,
+    args
+  );
 
   let errorText = "";
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // stdout
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   ytdlp.stdout.on("data", (data) => {
-    console.log(data.toString());
+    console.log(
+      data.toString()
+    );
   });
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // stderr
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   ytdlp.stderr.on("data", (data) => {
-    const message = data.toString();
+    const message =
+      data.toString();
 
     errorText += message;
 
     console.log(message);
   });
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Process error
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   ytdlp.on("error", (error) => {
-    console.error("yt-dlp process error:");
-    console.error(error);
+
+    console.error(
+      "yt-dlp process error:",
+      error
+    );
 
     fs.rmSync(tempDir, {
       recursive: true,
@@ -268,11 +271,12 @@ app.post("/api/download", (req, res) => {
     }
   });
 
-  // ----------------------------------------------
+  // ------------------------------------------------
   // Process finished
-  // ----------------------------------------------
+  // ------------------------------------------------
 
   ytdlp.on("close", (code) => {
+
     console.log(
       "yt-dlp exited with code:",
       code
@@ -282,16 +286,19 @@ app.post("/api/download", (req, res) => {
       return;
     }
 
-    // --------------------------------------------
-    // Download failed
-    // --------------------------------------------
+    // ----------------------------------------------
+    // Failed
+    // ----------------------------------------------
 
     if (code !== 0) {
+
       console.error(
-        "yt-dlp download failed:"
+        "yt-dlp failed:"
       );
 
-      console.error(errorText);
+      console.error(
+        errorText
+      );
 
       fs.rmSync(tempDir, {
         recursive: true,
@@ -305,17 +312,22 @@ app.post("/api/download", (req, res) => {
       });
     }
 
-    // --------------------------------------------
-    // Find downloaded file
-    // --------------------------------------------
+    // ----------------------------------------------
+    // Find file
+    // ----------------------------------------------
 
     let files;
 
     try {
-      files = fs.readdirSync(tempDir);
+
+      files =
+        fs.readdirSync(
+          tempDir
+        );
+
     } catch (error) {
+
       console.error(
-        "Unable to read download directory:",
         error
       );
 
@@ -326,24 +338,18 @@ app.post("/api/download", (req, res) => {
 
       return res.status(500).json({
         message:
-          "Unable to find the downloaded file."
+          "Unable to find downloaded file."
       });
     }
 
-    const downloaded = files.find(
-      (file) =>
-        !file.endsWith(".part") &&
-        !file.endsWith(".ytdl")
-    );
-
-    // --------------------------------------------
-    // File not found
-    // --------------------------------------------
+    const downloaded =
+      files.find(
+        (file) =>
+          !file.endsWith(".part") &&
+          !file.endsWith(".ytdl")
+      );
 
     if (!downloaded) {
-      console.error(
-        "No downloaded file found."
-      );
 
       fs.rmSync(tempDir, {
         recursive: true,
@@ -356,40 +362,40 @@ app.post("/api/download", (req, res) => {
       });
     }
 
-    // --------------------------------------------
-    // Full file path
-    // --------------------------------------------
-
-    const filePath = path.join(
-      tempDir,
-      downloaded
-    );
+    const filePath =
+      path.join(
+        tempDir,
+        downloaded
+      );
 
     console.log(
-      "Downloaded file:",
+      "Downloaded:",
       downloaded
     );
 
-    // --------------------------------------------
+    // ----------------------------------------------
     // Send file
-    // --------------------------------------------
+    // ----------------------------------------------
 
     res.download(
       filePath,
       downloaded,
       (error) => {
+
         if (error) {
           console.error(
-            "Error sending downloaded file:",
+            "File sending error:",
             error
           );
         }
 
-        // Clean temporary files
-        fs.rmSync(tempDir, {
-          recursive: true,
-          force: true
-        });
+        fs.rmSync(
+          tempDir,
+          {
+            recursive: true,
+            force: true
+          }
+        );
 
         console.log(
           "Temporary files removed."
@@ -407,49 +413,75 @@ app.post("/api/download", (req, res) => {
 // Serve React frontend
 // --------------------------------------------------
 
-const clientPath = path.join(
-  __dirname,
-  "../client/dist"
-);
+const clientPath =
+  path.join(
+    __dirname,
+    "../client/dist"
+  );
 
-if (fs.existsSync(clientPath)) {
+if (
+  fs.existsSync(clientPath)
+) {
+
   console.log(
-    "Serving frontend from:",
+    "Serving frontend:",
     clientPath
   );
 
   app.use(
-    express.static(clientPath)
+    express.static(
+      clientPath
+    )
   );
 
-  // React/Vite fallback
-  app.get("*", (req, res) => {
-    res.sendFile(
-      path.join(
-        clientPath,
-        "index.html"
-      )
-    );
-  });
+  app.get(
+    "*",
+    (req, res) => {
+
+      res.sendFile(
+        path.join(
+          clientPath,
+          "index.html"
+        )
+      );
+
+    }
+  );
+
 } else {
-  console.log(
-    "Frontend build not found:",
-    clientPath
-  );
 
-  app.get("/", (req, res) => {
-    res.send(
-      "Social Video Downloader API is running."
-    );
-  });
+  app.get(
+    "/",
+    (req, res) => {
+
+      res.send(
+        "Social Video Downloader API is running."
+      );
+
+    }
+  );
 }
 
 // --------------------------------------------------
 // Start server
 // --------------------------------------------------
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `Server running on port ${PORT}`
-  );
-});
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+
+    console.log(
+      `Server running on port ${PORT}`
+    );
+
+    console.log(
+      `Platform: ${process.platform}`
+    );
+
+    console.log(
+      `Python command: ${pythonCommand}`
+    );
+
+  }
+);
