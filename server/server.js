@@ -228,10 +228,13 @@ app.post("/api/download", async (req, res) => {
       jsRuntime,
 
       "--extractor-args",
-      "youtube:player_client=ios,mweb,android,web",
+      "youtube:player_client=tv_embedded,android_vr,tv,mweb,ios",
 
       "--user-agent",
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+
+      "--referer",
+      "https://www.youtube.com/",
 
       // Combined video + audio.
       // No FFmpeg required.
@@ -239,10 +242,19 @@ app.post("/api/download", async (req, res) => {
       "18"
     );
 
-    // Support cookies file if present or passed via environment variable
+    // Support cookies file if present or passed via environment variables
     const cookiesPath = path.join(__dirname, "cookies.txt");
     if (fs.existsSync(cookiesPath)) {
       args.push("--cookies", cookiesPath);
+    } else if (process.env.YOUTUBE_COOKIES_BASE64) {
+      try {
+        const decoded = Buffer.from(process.env.YOUTUBE_COOKIES_BASE64, "base64").toString("utf-8");
+        const tempCookiesPath = path.join(tempDir, "cookies.txt");
+        fs.writeFileSync(tempCookiesPath, decoded);
+        args.push("--cookies", tempCookiesPath);
+      } catch (err) {
+        console.error("Failed to decode YOUTUBE_COOKIES_BASE64:", err);
+      }
     } else if (process.env.YOUTUBE_COOKIES) {
       const tempCookiesPath = path.join(tempDir, "cookies.txt");
       fs.writeFileSync(tempCookiesPath, process.env.YOUTUBE_COOKIES);
