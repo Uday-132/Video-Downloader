@@ -1,4 +1,6 @@
 server/bin/
+cookies.txt
+server/cookies.txt
 node_modules/
 client/dist/
 *.mp4

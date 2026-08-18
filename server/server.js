@@ -227,11 +227,27 @@ app.post("/api/download", async (req, res) => {
       "--js-runtimes",
       jsRuntime,
 
+      "--extractor-args",
+      "youtube:player_client=ios,mweb,android,web",
+
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+
       // Combined video + audio.
       // No FFmpeg required.
       "-f",
       "18"
     );
+
+    // Support cookies file if present or passed via environment variable
+    const cookiesPath = path.join(__dirname, "cookies.txt");
+    if (fs.existsSync(cookiesPath)) {
+      args.push("--cookies", cookiesPath);
+    } else if (process.env.YOUTUBE_COOKIES) {
+      const tempCookiesPath = path.join(tempDir, "cookies.txt");
+      fs.writeFileSync(tempCookiesPath, process.env.YOUTUBE_COOKIES);
+      args.push("--cookies", tempCookiesPath);
+    }
   }
 
   // ------------------------------------------------
