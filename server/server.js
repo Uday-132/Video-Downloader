@@ -165,19 +165,18 @@ app.post("/api/download", (req, res) => {
   // ------------------------------------------------
 
   if (platform === "youtube") {
-
-    let denoArgument = "deno";
+    let jsRuntime = "node";
 
     if (
       process.platform === "win32" &&
       fs.existsSync(localDenoPath)
     ) {
-      denoArgument = `deno:${localDenoPath}`;
+      jsRuntime = `deno:${localDenoPath}`;
     }
 
     args.push(
       "--js-runtimes",
-      denoArgument,
+      jsRuntime,
 
       // Combined video + audio.
       // No FFmpeg required.
