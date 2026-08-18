@@ -527,9 +527,5 @@ app.listen(
       `Platform: ${process.platform}`
     );
 
-    console.log(
-      `Python command: ${pythonCommand}`
-    );
-
   }
 );
