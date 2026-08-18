@@ -74,6 +74,49 @@ async function getYtDlpExecutable() {
 }
 
 // --------------------------------------------------
+// Cobalt API Fallback for Datacenter IP Restrictions
+// --------------------------------------------------
+
+async function downloadViaCobalt(targetUrl) {
+  const cobaltInstances = [
+    "https://api.cobalt.tools",
+    "https://co.wuk.sh"
+  ];
+
+  for (const instance of cobaltInstances) {
+    try {
+      const response = await fetch(instance, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        },
+        body: JSON.stringify({
+          url: targetUrl,
+          downloadMode: "auto",
+          videoQuality: "720"
+        })
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      if (data && data.url) {
+        return data.url;
+      }
+      if (data && data.picker && data.picker.length > 0) {
+        return data.picker[0].url;
+      }
+    } catch (err) {
+      console.warn(`Cobalt instance ${instance} failed:`, err.message);
+    }
+  }
+
+  return null;
+}
+
+// --------------------------------------------------
 // Allowed hosts
 // --------------------------------------------------
 
@@ -351,7 +394,7 @@ app.post("/api/download", async (req, res) => {
   // Process finished
   // ------------------------------------------------
 
-  ytdlp.on("close", (code) => {
+  ytdlp.on("close", async (code) => {
 
     console.log(
       "yt-dlp exited with code:",
@@ -363,28 +406,45 @@ app.post("/api/download", async (req, res) => {
     }
 
     // ----------------------------------------------
-    // Failed
+    // Failed: Attempt Fallback
     // ----------------------------------------------
 
     if (code !== 0) {
 
-      console.error(
-        "yt-dlp failed:"
-      );
+      console.error("yt-dlp failed:");
+      console.error(errorText);
 
-      console.error(
-        errorText
-      );
+      console.log("Attempting fallback download via Cobalt API...");
+      const fallbackUrl = await downloadViaCobalt(url);
+
+      if (fallbackUrl) {
+        try {
+          console.log("Cobalt fallback stream URL:", fallbackUrl);
+          const streamRes = await fetch(fallbackUrl);
+          if (streamRes.ok) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            res.setHeader("Content-Type", "video/mp4");
+            res.setHeader("Content-Disposition", 'attachment; filename="video.mp4"');
+            const arrayBuffer = await streamRes.arrayBuffer();
+            return res.send(Buffer.from(arrayBuffer));
+          }
+        } catch (fallbackError) {
+          console.error("Cobalt fallback streaming error:", fallbackError);
+        }
+      }
 
       fs.rmSync(tempDir, {
         recursive: true,
         force: true
       });
 
+      const isBotBlock = errorText.includes("Sign in to confirm you’re not a bot") || errorText.includes("bot");
+      const userMsg = isBotBlock
+        ? "YouTube blocked server IP. Set YOUTUBE_COOKIES_BASE64 environment variable in Render settings, or try again later."
+        : (errorText || "Download failed.");
+
       return res.status(500).json({
-        message:
-          errorText ||
-          "Download failed."
+        message: userMsg
       });
     }
 
