@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -24,13 +24,54 @@ const localDenoPath =
   "C:\\Users\\udayv\\AppData\\Local\\Microsoft\\WinGet\\Packages\\DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe\\deno.exe";
 
 // --------------------------------------------------
-// Platform commands
+// Resolve or download yt-dlp executable
 // --------------------------------------------------
 
-const pythonCommand =
-  process.platform === "win32"
-    ? "py"
-    : "python3";
+async function getYtDlpExecutable() {
+  const isWin = process.platform === "win32";
+  const binDir = path.join(__dirname, "bin");
+  const binName = isWin ? "yt-dlp.exe" : "yt-dlp";
+  const binPath = path.join(binDir, binName);
+
+  if (fs.existsSync(binPath)) {
+    return { command: binPath, prefixArgs: [] };
+  }
+
+  try {
+    execSync(isWin ? "where yt-dlp" : "which yt-dlp", { stdio: "ignore" });
+    return { command: "yt-dlp", prefixArgs: [] };
+  } catch {}
+
+  const pyCmd = isWin ? "py" : "python3";
+  try {
+    execSync(`${pyCmd} -m yt_dlp --version`, { stdio: "ignore" });
+    return { command: pyCmd, prefixArgs: ["-m", "yt_dlp"] };
+  } catch {}
+
+  console.log(`Downloading standalone yt-dlp binary to ${binPath}...`);
+  if (!fs.existsSync(binDir)) {
+    fs.mkdirSync(binDir, { recursive: true });
+  }
+
+  const downloadUrl = isWin
+    ? "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    : "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download yt-dlp: ${response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  fs.writeFileSync(binPath, Buffer.from(arrayBuffer));
+
+  if (!isWin) {
+    fs.chmodSync(binPath, 0o755);
+  }
+
+  console.log("yt-dlp standalone binary ready!");
+  return { command: binPath, prefixArgs: [] };
+}
 
 // --------------------------------------------------
 // Allowed hosts
@@ -103,8 +144,7 @@ function isAllowedUrl(value) {
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    platform: process.platform,
-    python: pythonCommand
+    platform: process.platform
   });
 });
 
@@ -112,7 +152,7 @@ app.get("/health", (req, res) => {
 // Download
 // --------------------------------------------------
 
-app.post("/api/download", (req, res) => {
+app.post("/api/download", async (req, res) => {
   const { url } = req.body;
 
   if (!url || !isAllowedUrl(url)) {
@@ -131,11 +171,21 @@ app.post("/api/download", (req, res) => {
     });
   }
 
+  let execInfo;
+  try {
+    execInfo = await getYtDlpExecutable();
+  } catch (err) {
+    console.error("yt-dlp resolution error:", err);
+    return res.status(500).json({
+      message: "Unable to locate or download yt-dlp executable on server."
+    });
+  }
+
   console.log("----------------------------------------");
   console.log("Platform:", platform);
   console.log("URL:", url);
   console.log("Operating system:", process.platform);
-  console.log("Python command:", pythonCommand);
+  console.log("yt-dlp command:", execInfo.command);
 
   // ------------------------------------------------
   // Temporary directory
@@ -155,8 +205,7 @@ app.post("/api/download", (req, res) => {
   // ------------------------------------------------
 
   const args = [
-    "-m",
-    "yt_dlp",
+    ...execInfo.prefixArgs,
     "--no-playlist"
   ];
 
@@ -208,7 +257,7 @@ app.post("/api/download", (req, res) => {
 
   console.log(
     "Running:",
-    pythonCommand,
+    execInfo.command,
     args.join(" ")
   );
 
@@ -217,7 +266,7 @@ app.post("/api/download", (req, res) => {
   // ------------------------------------------------
 
   const ytdlp = spawn(
-    pythonCommand,
+    execInfo.command,
     args
   );
 
